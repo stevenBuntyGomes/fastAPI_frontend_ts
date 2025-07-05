@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import VoiceRecorder from '@/components/VoiceRecorder';
+import VoiceChat from '@/components/VoiceRecorder';
 
 export default function HomePage() {
   const [messages, setMessages] = useState<{ role: string; text: string }[]>([]);
@@ -23,7 +23,7 @@ export default function HomePage() {
         ))}
       </div>
 
-      <VoiceRecorder setMessages={setMessages} />
+      <VoiceChat setMessages={setMessages} />
     </main>
   );
 }
