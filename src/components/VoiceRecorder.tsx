@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-declare module 'mic-recorder-to-mp3';
 import MicRecorder from 'mic-recorder-to-mp3';
 
 const recorder = new MicRecorder({ bitRate: 128 });
