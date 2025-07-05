@@ -128,3 +128,4 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
 };
 
 export default VoiceChat;
+// correction added in the project
