@@ -27,7 +27,7 @@ const VoiceChat: React.FC = () => {
 
   const stopRecording = async () => {
     try {
-      const [buffer, blob] = await recorder.stop().getMp3();
+      const [, blob] = await recorder.stop().getMp3();
       setIsRecording(false);
 
       if (blob.size === 0) {
@@ -98,9 +98,14 @@ const VoiceChat: React.FC = () => {
       const audio = new Audio(audioUrl);
       await audio.play();
 
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Something went wrong during voice interaction.');
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(err);
+        setError(err.message || 'Something went wrong during voice interaction.');
+      } else {
+        console.error('Unknown error:', err);
+        setError('Something went wrong during voice interaction.');
+      }
     }
   };
 
