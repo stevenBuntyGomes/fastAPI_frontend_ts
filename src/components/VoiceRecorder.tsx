@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
 import MicRecorder from 'mic-recorder-to-mp3';
 
@@ -8,9 +6,9 @@ const recorder = new MicRecorder({ bitRate: 128 });
 interface VoiceChatProps {
   setMessages: React.Dispatch<React.SetStateAction<{ role: string; text: string }[]>>;
 }
+
 const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [responseText, setResponseText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,7 +62,7 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
 
       setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
-      const backendRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -72,14 +70,23 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
         body: JSON.stringify({ user_id: 'dummy-user', message: userText }),
       });
 
-      if (!backendRes.ok) throw new Error('Backend response failed.');
-      const backendData = await backendRes.json();
-      const gptReply: string = backendData.response;
-      console.log('🤖 GPT:', gptReply);
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to stream GPT response.');
+      }
 
-      setResponseText(gptReply);
-      setMessages((prev) => [...prev, { role: 'assistant', text: gptReply }]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let gptReply = '';
 
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        gptReply += chunk;
+        setMessages((prev) => [...prev, { role: 'assistant', text: gptReply }]);
+      }
+
+      // Text-to-speech
       const ttsRes = await fetch('https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL', {
         method: 'POST',
         headers: {
@@ -119,13 +126,9 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       <button onClick={isRecording ? stopRecording : startRecording}>
         {isRecording ? '🛑 Stop Recording' : '🎤 Start Recording'}
       </button>
-
-      {responseText && <p><strong>AI:</strong> {responseText}</p>}
-
       {error && <p style={{ color: 'red' }}>⚠️ {error}</p>}
     </div>
   );
 };
 
 export default VoiceChat;
-// correction added in the project
