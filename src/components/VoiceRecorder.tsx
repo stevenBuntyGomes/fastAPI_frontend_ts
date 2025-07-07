@@ -8,14 +8,14 @@ const recorder = new MicRecorder({ bitRate: 128 });
 interface VoiceChatProps {
   setMessages: React.Dispatch<React.SetStateAction<{ role: string; text: string }[]>>;
 }
+
 const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [responseText, setResponseText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
-      setError('Microphone access denied. Please allow mic access to use voice chat.');
+      setError('🎙️ Microphone access denied. Please allow access to use voice chat.');
     });
   }, []);
 
@@ -25,7 +25,7 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       await recorder.start();
       setIsRecording(true);
     } catch (err) {
-      setError('Could not start recording. Please try again.');
+      setError('❌ Failed to start recording. Please try again.');
       console.error(err);
     }
   };
@@ -36,7 +36,7 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       setIsRecording(false);
 
       if (blob.size === 0) {
-        setError('Recording failed: empty audio data.');
+        setError('❌ Empty audio. Please speak clearly.');
         return;
       }
 
@@ -55,16 +55,21 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       if (!sttRes.ok) {
         const errorText = await sttRes.text();
         console.error('🛑 ElevenLabs STT failed:', errorText);
-        throw new Error('Speech-to-text failed.');
+        throw new Error('Speech-to-text failed. Try again later.');
       }
 
       const sttData = await sttRes.json();
-      const userText: string = sttData.text;
-      console.log('🗣️ User:', userText);
+      const userText = sttData.text?.trim();
 
+      if (!userText) {
+        setError('🛑 Could not understand your voice. Try speaking more clearly.');
+        return;
+      }
+
+      console.log('🗣️ You said:', userText);
       setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
-      const backendRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -72,13 +77,28 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
         body: JSON.stringify({ user_id: 'dummy-user', message: userText }),
       });
 
-      if (!backendRes.ok) throw new Error('Backend response failed.');
-      const backendData = await backendRes.json();
-      const gptReply: string = backendData.response;
-      console.log('🤖 GPT:', gptReply);
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to stream GPT response.');
+      }
 
-      setResponseText(gptReply);
-      setMessages((prev) => [...prev, { role: 'assistant', text: gptReply }]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let fullResponse = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        fullResponse += chunk;
+      }
+
+      if (!fullResponse.trim()) {
+        setError('GPT returned an empty response.');
+        return;
+      }
+
+      console.log('🤖 GPT Full Reply:', fullResponse);
 
       const ttsRes = await fetch('https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL', {
         method: 'POST',
@@ -87,7 +107,7 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          text: gptReply,
+          text: fullResponse,
           model_id: 'eleven_monolingual_v1',
           voice_settings: {
             stability: 0.3,
@@ -96,36 +116,76 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
         }),
       });
 
-      if (!ttsRes.ok) throw new Error('Text-to-speech failed.');
+      if (!ttsRes.ok) {
+        const errorText = await ttsRes.text();
+        console.error('🛑 ElevenLabs TTS failed:', errorText);
+        throw new Error('Text-to-speech failed. Try again later.');
+      }
+
       const audioBlob = await ttsRes.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       await audio.play();
-
     } catch (err) {
+      console.error(err);
       if (err instanceof Error) {
-        console.error(err);
-        setError(err.message || 'Something went wrong during voice interaction.');
+        setError(`❌ ${err.message}`);
       } else {
-        console.error('Unknown error:', err);
-        setError('Something went wrong during voice interaction.');
+        setError('❌ Something went wrong during voice interaction.');
       }
     }
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   return (
-    <div style={{ padding: '2rem' }}>
+    <div style={{ padding: '2rem', textAlign: 'center' }}>
       <h2>🎙️ Voice Chat with AI</h2>
-      <button onClick={isRecording ? stopRecording : startRecording}>
-        {isRecording ? '🛑 Stop Recording' : '🎤 Start Recording'}
+
+      <button
+        onClick={toggleRecording}
+        style={{
+          width: '80px',
+          height: '80px',
+          borderRadius: '50%',
+          border: 'none',
+          backgroundColor: isRecording ? '#ff4d4d' : '#4CAF50',
+          color: 'white',
+          fontSize: '24px',
+          boxShadow: isRecording ? '0 0 10px 3px red' : '0 0 8px 2px #4CAF50',
+          animation: isRecording ? 'pulse 1s infinite' : 'none',
+          cursor: 'pointer',
+        }}
+      >
+        {isRecording ? '🛑' : '🎤'}
       </button>
 
-      {responseText && <p><strong>AI:</strong> {responseText}</p>}
+      {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
 
-      {error && <p style={{ color: 'red' }}>⚠️ {error}</p>}
+      <style jsx>{`
+        @keyframes pulse {
+          0% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7);
+          }
+          70% {
+            transform: scale(1.05);
+            box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+          }
+          100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+          }
+        }
+      `}</style>
     </div>
   );
 };
 
 export default VoiceChat;
-// correction added in the project
