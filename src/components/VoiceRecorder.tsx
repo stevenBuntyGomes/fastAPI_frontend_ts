@@ -5,13 +5,11 @@ import MicRecorder from 'mic-recorder-to-mp3';
 
 const recorder = new MicRecorder({ bitRate: 128 });
 
-interface VoiceChatProps {
-  setMessages: React.Dispatch<React.SetStateAction<{ role: string; text: string }[]>>;
-}
-
-const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
+const VoiceChat: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gptResponse, setGptResponse] = useState<string | null>(null);
+  const [userInputText, setUserInputText] = useState<string | null>(null);
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
@@ -22,6 +20,8 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
   const startRecording = async () => {
     try {
       setError(null);
+      setUserInputText(null);
+      setGptResponse(null);
       await recorder.start();
       setIsRecording(true);
     } catch (err) {
@@ -67,38 +67,28 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       }
 
       console.log('🗣️ You said:', userText);
-      setMessages((prev) => [...prev, { role: 'user', text: userText }]);
+      setUserInputText(userText);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat/stream`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: 'dummy-user', message: userText }),
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error('Failed to stream GPT response.');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`❌ GPT error: ${errorText}`);
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let fullResponse = '';
+      const data = await response.json();
+      const fullResponse = data.response?.trim();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        fullResponse += chunk;
-      }
-
-      if (!fullResponse.trim()) {
-        setError('GPT returned an empty response.');
+      if (!fullResponse) {
+        setError('🤖 GPT said nothing. Try again.');
         return;
       }
 
-      console.log('🤖 GPT Full Reply:', fullResponse);
+      setGptResponse(fullResponse);
 
       const ttsRes = await fetch('https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL', {
         method: 'POST',
@@ -128,20 +118,14 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
       await audio.play();
     } catch (err) {
       console.error(err);
-      if (err instanceof Error) {
-        setError(`❌ ${err.message}`);
-      } else {
-        setError('❌ Something went wrong during voice interaction.');
-      }
+      setError(err instanceof Error ? `❌ ${err.message}` : '❌ Something went wrong during voice interaction.');
     }
   };
 
   const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+    setUserInputText(null);
+    setGptResponse(null);
+    isRecording ? stopRecording() : startRecording();
   };
 
   return (
@@ -166,7 +150,43 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ setMessages }) => {
         {isRecording ? '🛑' : '🎤'}
       </button>
 
-      {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
+      {error && (
+        <div style={{
+          marginTop: '1rem',
+          color: '#d32f2f',
+          backgroundColor: '#fdecea',
+          padding: '0.75rem',
+          borderRadius: '6px',
+          fontWeight: '500'
+        }}>
+          {error}
+        </div>
+      )}
+
+      {userInputText && (
+        <div style={{
+          marginTop: '1.5rem',
+          padding: '0.75rem',
+          borderRadius: '8px',
+          backgroundColor: '#fff3e0',
+          color: '#e65100'
+        }}>
+          🧑 You: {userInputText}
+        </div>
+      )}
+
+      {gptResponse && (
+        <div style={{
+          marginTop: '1.5rem',
+          backgroundColor: '#e8f5e9',
+          padding: '1rem',
+          borderRadius: '10px',
+          color: '#2e7d32',
+          fontWeight: 'bold',
+        }}>
+          🤖 GPT: {gptResponse}
+        </div>
+      )}
 
       <style jsx>{`
         @keyframes pulse {
