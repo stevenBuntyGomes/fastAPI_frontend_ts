@@ -125,7 +125,12 @@ const VoiceChat: React.FC = () => {
   const toggleRecording = () => {
     setUserInputText(null);
     setGptResponse(null);
-    isRecording ? stopRecording() : startRecording();
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+
   };
 
   return (
