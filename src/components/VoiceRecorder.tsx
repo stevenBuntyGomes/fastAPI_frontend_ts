@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react';
 import MicRecorder from 'mic-recorder-to-mp3';
 
 const recorder = new MicRecorder({ bitRate: 128 });
-// trial
+
 const VoiceChat: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gptResponse, setGptResponse] = useState<string | null>(null);
+  const [gptResponse, setGptResponse] = useState<string>('');
   const [userInputText, setUserInputText] = useState<string | null>(null);
 
   useEffect(() => {
@@ -18,10 +18,10 @@ const VoiceChat: React.FC = () => {
   }, []);
 
   const startRecording = async () => {
+    setError(null);
+    setUserInputText(null);
+    setGptResponse('');
     try {
-      setError(null);
-      setUserInputText(null);
-      setGptResponse(null);
       await recorder.start();
       setIsRecording(true);
     } catch (err) {
@@ -66,30 +66,50 @@ const VoiceChat: React.FC = () => {
         return;
       }
 
-      console.log('🗣️ You said:', userText);
       setUserInputText(userText);
+      streamGptResponse(userText);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`, {
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? `❌ ${err.message}` : '❌ Something went wrong during voice interaction.');
+    }
+  };
+
+  const streamGptResponse = async (userText: string) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: 'dummy-user', message: userText }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`❌ GPT error: ${errorText}`);
-      }
-
-      const data = await response.json();
-      const fullResponse = data.response?.trim();
-
-      if (!fullResponse) {
-        setError('🤖 GPT said nothing. Try again.');
+      if (!response.body) {
+        setError('❌ No GPT stream received.');
         return;
       }
 
-      setGptResponse(fullResponse);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let result = '';
 
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        result += chunk;
+        setGptResponse(prev => (prev || '') + chunk);
+      }
+
+      playResponse(result);
+    } catch (err) {
+      console.error(err);
+      setError('❌ GPT streaming failed.');
+    }
+  };
+
+  const playResponse = async (text: string) => {
+    try {
       const ttsRes = await fetch('https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL', {
         method: 'POST',
         headers: {
@@ -97,7 +117,7 @@ const VoiceChat: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          text: fullResponse,
+          text,
           model_id: 'eleven_monolingual_v1',
           voice_settings: {
             stability: 0.3,
@@ -107,9 +127,8 @@ const VoiceChat: React.FC = () => {
       });
 
       if (!ttsRes.ok) {
-        const errorText = await ttsRes.text();
-        console.error('🛑 ElevenLabs TTS failed:', errorText);
-        throw new Error('Text-to-speech failed. Try again later.');
+        console.error('🛑 ElevenLabs TTS failed:', await ttsRes.text());
+        throw new Error('Text-to-speech failed.');
       }
 
       const audioBlob = await ttsRes.blob();
@@ -118,19 +137,8 @@ const VoiceChat: React.FC = () => {
       await audio.play();
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? `❌ ${err.message}` : '❌ Something went wrong during voice interaction.');
+      setError('❌ Failed to play AI voice.');
     }
-  };
-
-  const toggleRecording = () => {
-    setUserInputText(null);
-    setGptResponse(null);
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-
   };
 
   return (
@@ -138,7 +146,7 @@ const VoiceChat: React.FC = () => {
       <h2>🎙️ Voice Chat with AI</h2>
 
       <button
-        onClick={toggleRecording}
+        onClick={isRecording ? stopRecording : startRecording}
         style={{
           width: '80px',
           height: '80px',
@@ -155,43 +163,9 @@ const VoiceChat: React.FC = () => {
         {isRecording ? '🛑' : '🎤'}
       </button>
 
-      {error && (
-        <div style={{
-          marginTop: '1rem',
-          color: '#d32f2f',
-          backgroundColor: '#fdecea',
-          padding: '0.75rem',
-          borderRadius: '6px',
-          fontWeight: '500'
-        }}>
-          {error}
-        </div>
-      )}
-
-      {userInputText && (
-        <div style={{
-          marginTop: '1.5rem',
-          padding: '0.75rem',
-          borderRadius: '8px',
-          backgroundColor: '#fff3e0',
-          color: '#e65100'
-        }}>
-          🧑 You: {userInputText}
-        </div>
-      )}
-
-      {gptResponse && (
-        <div style={{
-          marginTop: '1.5rem',
-          backgroundColor: '#e8f5e9',
-          padding: '1rem',
-          borderRadius: '10px',
-          color: '#2e7d32',
-          fontWeight: 'bold',
-        }}>
-          🤖 GPT: {gptResponse}
-        </div>
-      )}
+      {error && <div style={{ marginTop: '1rem', color: '#d32f2f' }}>{error}</div>}
+      {userInputText && <div style={{ marginTop: '1.5rem' }}>🧑 You: {userInputText}</div>}
+      {gptResponse && <div style={{ marginTop: '1.5rem' }}>🤖 GPT: {gptResponse}</div>}
 
       <style jsx>{`
         @keyframes pulse {
